@@ -427,7 +427,7 @@ SC={color(h){mats.forEach(m=>m.color.set(h))},result(sh){sats.forEach((s,i)=>s.u
 }catch(e){console.warn("3D недоступне",e)}}
 if(window.THREE)init3d();
 /* Перевірка підписки через Telegram-бота. Порожній api вимикає її. Після розгортання сервера впишіть адресу сервера та ім’я бота без @. */
-const GATE={api:"http://127.0.0.1:8000",bot:"formambti_bot"};
+const GATE={api:"https://a72042-d025.j.onjrnm.co.uk",bot:"formambti_bot"};
 let tok="",pt=0;
 async function poll(){try{const d=await(await fetch(GATE.api+"/status?token="+tok)).json();if(d.ok){clearInterval(pt);start(CFG.standard)}}catch(e){$("gm").textContent="Сервер перевірки недоступний. Спробуйте пізніше."}}
 function openGate(){tok=[...crypto.getRandomValues(new Uint8Array(12))].map(b=>b.toString(16).padStart(2,"0")).join("");show("gate");$("gl").href="https://t.me/"+GATE.bot+"?start="+tok;clearInterval(pt);pt=setInterval(poll,2500)}
