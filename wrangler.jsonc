@@ -11,14 +11,9 @@
       "id": "82887547302742909f3d6eb5c18fb830"
     }
   ],
-  "triggers": {
-    "crons": ["0 * * * *"]
-  },
   "vars": {
     "GEMINI_MODEL": "gemini-2.5-flash",
     "SITE_URL": "https://krytuidima.github.io/FORMA_MBTI/",
-    "SITE_ORIGIN": "https://krytuidima.github.io",
-    "TIMEZONE": "Europe/Kyiv",
-    "REMINDER_HOUR": "10"
+    "SITE_ORIGIN": "https://krytuidima.github.io"
   }
 }

@@ -146,8 +146,7 @@ async function generatePost(env) {
   const availableFormats = POST_FORMATS.filter((format) => !recentFormats.includes(format));
   const formatPool = availableFormats.length ? availableFormats : POST_FORMATS;
   const format = formatPool[Math.floor(Math.random() * formatPool.length)];
-  const allowLongStory = format === "впізнавана коротка історія" && Math.random() < 0.15;
-  const maxLength = allowLongStory ? 1000 : 800;
+  const maxLength = 1000;
   const invitedToTest =
     history.slice(-3).every((post) => !post.invitedToTest) && Math.random() < 0.25;
   const priorPosts = history.length
@@ -164,7 +163,7 @@ async function generatePost(env) {
     invitedToTest
       ? `Цього разу доречно ненав'язливо запросити пройти тест: ${env.SITE_URL || ""}`
       : "Цього разу не запрошуй проходити тест.",
-    `Довжина: 450–800 символів разом із пробілами. Лише якщо міні-історії справді потрібен простір, цього разу можна до ${maxLength} символів. Зроби 2–4 короткі абзаци.`,
+    `Зазвичай пиши 450–800 символів разом із пробілами; рідко можна до ${maxLength}, якщо цього потребує думка чи міні-історія. Зроби 2–4 короткі абзаци.`,
     "Поверни простий текст без Markdown. Емодзі — 0–2, хештеги — не більше одного й лише за потреби.",
     "Подавай MBTI як модель для саморефлексії, а не доведену істину. Не вигадуй досліджень, цитат, імен учених чи цифр. Не став діагнозів і не давай медичних чи психотерапевтичних порад.",
     "Не висміюй людей і типи, не створюй стереотипів, не діли типи на кращі й гірші, не лякай і не маніпулюй. Не вдавай, що маєш особистий людський досвід.",
@@ -277,25 +276,10 @@ async function createDraft(env) {
   }
 }
 
-async function sendReminder(env, localDate) {
-  if (!env.ADMIN_ID) throw new Error("ADMIN_ID is required for daily reminders");
-  const sentKey = `reminder:${localDate}`;
-  if (await env.KV.get(sentKey)) return;
-  await telegram(env, "sendMessage", {
-    chat_id: env.ADMIN_ID,
-    text: "Щоденне нагадування FORMA:\n• Підготуй пост для каналу.\n• Перевір, чи потрібно поновити застосунок.",
-    reply_markup: keyboard([
-      [{ text: "Створити пост", callback_data: "create" }],
-      [{ text: "✅ Оновлено", callback_data: "renewed" }],
-    ]),
-  });
-  await env.KV.put(sentKey, "1", { expirationTtl: 172800 });
-}
-
 async function sendAdminMenu(env) {
   await telegram(env, "sendMessage", {
     chat_id: env.ADMIN_ID,
-    text: "Адмін-панель. Можна створити пост зараз — щоденне нагадування не зміниться.",
+    text: "Адмін-панель. Створи чернетку будь-коли; автоматичних нагадувань немає.",
     reply_markup: keyboard([
       [{ text: "Створити пост зараз", callback_data: "create" }],
     ]),
@@ -388,15 +372,6 @@ async function handleCallback(query, env) {
     await createDraft(env);
     return;
   }
-  if (data === "renewed") {
-    await telegram(env, "editMessageText", {
-      chat_id: message.chat.id,
-      message_id: message.message_id,
-      text: "✅ Позначено як оновлене. Наступне нагадування прийде завтра.",
-    });
-    return;
-  }
-
   const [action, id] = data.split(":");
   if (!id) return;
   const draft = await getDraft(env, id);
@@ -460,19 +435,6 @@ async function handle(update, env) {
   if (update.callback_query) return handleCallback(update.callback_query, env);
 }
 
-function localDateTime(timestamp, timezone) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(timestamp));
-  return Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-}
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -519,11 +481,5 @@ export default {
       return j({ ok: result }, 200, origin);
     }
     return new Response("FORMA");
-  },
-
-  async scheduled(event, env, ctx) {
-    const local = localDateTime(event.scheduledTime, env.TIMEZONE || "Europe/Kyiv");
-    if (local.hour !== (env.REMINDER_HOUR || "10") || local.minute !== "00") return;
-    ctx.waitUntil(sendReminder(env, `${local.year}-${local.month}-${local.day}`));
   },
 };
