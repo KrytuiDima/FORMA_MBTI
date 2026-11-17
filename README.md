@@ -22,13 +22,14 @@ server.py        попередній Python-варіант; для Cloudflare �
 4. Створи Gemini API key у [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 ## 3. Безкоштовний бот на Cloudflare Workers
-1. Cloudflare → **Workers & Pages** → створи Worker і встав код із `worker.js`.
-2. У **Storage & Databases → KV** створи namespace та прив'яжи його до Worker з binding name `KV`.
-3. У **Settings → Variables and Secrets** задай:
-   - Secrets: `BOT_TOKEN`, `GEMINI_API_KEY`, `WEBHOOK_SECRET` (довгий випадковий рядок із літер і цифр).
-   - Variables: `CHANNEL`, `ADMIN_ID`, `GEMINI_MODEL=gemini-2.5-flash`, `SITE_URL=https://krytuidima.github.io/FORMA_MBTI/`, `SITE_ORIGIN=https://krytuidima.github.io`, `TIMEZONE=Europe/Kyiv`, `REMINDER_HOUR=10`.
+1. Створи KV namespace у **Storage & Databases → KV** і скопіюй його ID.
+2. У `wrangler.jsonc` заміни прикладний KV ID на свій.
+3. У корені проєкту виконай `npx wrangler login`, потім `npx wrangler deploy`. Конфіг розгортає `worker.js`, додає KV binding `KV` та Cron `0 * * * *`.
+4. У **Workers & Pages → forma-mbti-api → Settings → Variables and Secrets** задай:
+   - Secrets: `BOT_TOKEN`, `GEMINI_API_KEY`, `WEBHOOK_SECRET` (новий довгий випадковий рядок із літер і цифр).
+   - Variables: `CHANNEL`, `ADMIN_ID`.
    - Необов'язково: `TOPICS` — теми через крапку з комою.
-4. Зроби Deploy. У **Triggers → Cron Triggers** додай `0 * * * *` — Worker перевірятиме час щогодини й надсилатиме нагадування о 10:00 за Києвом.
+   `keep_vars` у Wrangler-конфігурації зберігає ці змінні, задані через Dashboard, під час наступних розгортань.
 5. Після Deploy відкрий `https://ІМʼЯ-ТВОГО-WORKER.ТВІЙ-SUBDOMAIN.workers.dev/setup/WEBHOOK_SECRET`. `WEBHOOK_SECRET` у URL має бути той самий, що в налаштуваннях; URL не публікуй. У відповіді очікується `{"ok":true}`.
 6. Напиши мені лише публічну адресу Worker, наприклад `https://назва.піддомен.workers.dev` — без секрету. Я підключу її до GitHub Pages замість зупиненого JustRun API й перевірю `/status`.
 
