@@ -8,6 +8,16 @@ const DEFAULT_TOPICS = [
   "MBTI і Big Five: що відомо науці",
 ];
 const TTL = 172800;
+const POST_HISTORY_KEY = "post-history";
+const POST_HISTORY_LIMIT = 12;
+const POST_FORMATS = [
+  "сценка з повсякденного життя",
+  "двоє людей — одна ситуація — різні реакції",
+  "міф і як буває насправді",
+  "питання-опитування",
+  "мікропорада, яку можна спробувати сьогодні",
+  "впізнавана коротка історія",
+];
 const j = (data, status = 200, origin = "*") =>
   new Response(JSON.stringify(data), {
     status,
@@ -62,6 +72,26 @@ async function getDraft(env, id) {
   return value ? JSON.parse(value) : null;
 }
 
+async function getPostHistory(env) {
+  const value = await env.KV.get(POST_HISTORY_KEY);
+  if (!value) return [];
+  const history = JSON.parse(value);
+  if (
+    !Array.isArray(history) ||
+    history.some(
+      (entry) =>
+        !entry ||
+        typeof entry.text !== "string" ||
+        typeof entry.topic !== "string" ||
+        typeof entry.format !== "string" ||
+        typeof entry.invitedToTest !== "boolean",
+    )
+  ) {
+    throw new Error("Stored post history has an invalid format");
+  }
+  return history.slice(-POST_HISTORY_LIMIT);
+}
+
 async function updateDraftMessage(env, id, draft) {
   await env.KV.put(`d:${id}`, JSON.stringify(draft), { expirationTtl: TTL });
   await telegram(env, "editMessageText", {
@@ -102,22 +132,51 @@ async function checkSubscription(env, chatId, userId, token) {
 
 async function generatePost(env) {
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
+  const history = await getPostHistory(env);
   const topics = (env.TOPICS || DEFAULT_TOPICS.join(";"))
     .split(";")
     .map((topic) => topic.trim())
     .filter(Boolean);
   if (!topics.length) throw new Error("TOPICS contains no usable topics");
-  const topic = topics[Math.floor(Math.random() * topics.length)];
+  const recentTopics = history.slice(-5).map((post) => post.topic);
+  const availableTopics = topics.filter((topic) => !recentTopics.includes(topic));
+  const topicPool = availableTopics.length ? availableTopics : topics;
+  const topic = topicPool[Math.floor(Math.random() * topicPool.length)];
+  const recentFormats = history.slice(-3).map((post) => post.format);
+  const availableFormats = POST_FORMATS.filter((format) => !recentFormats.includes(format));
+  const formatPool = availableFormats.length ? availableFormats : POST_FORMATS;
+  const format = formatPool[Math.floor(Math.random() * formatPool.length)];
+  const allowLongStory = format === "впізнавана коротка історія" && Math.random() < 0.15;
+  const maxLength = allowLongStory ? 1000 : 800;
+  const invitedToTest =
+    history.slice(-3).every((post) => !post.invitedToTest) && Math.random() < 0.25;
+  const priorPosts = history.length
+    ? history.map((post) => post.text).join("\n\n---\n\n")
+    : "Історія дописів поки порожня.";
   const system = [
-    "Ти редактор українського Telegram-каналу про самопізнання й психологію особистості.",
-    "Пиши просто, конкретно, у 3–5 абзацах, без емодзі-спаму і довгих списків хештегів.",
-    "MBTI подавай як модель-гіпотезу, а не доведену істину; не став діагнозів, не давай медичних порад, не вигадуй досліджень чи цифр.",
-    "Не додавай пояснень для замовника. Заверши запитанням до читачів або запрошенням пройти тест:",
-    env.SITE_URL || "",
+    "Ти автор українського Telegram-каналу про те, як люди мислять, відчувають і ухвалюють рішення на основі моделі MBTI та когнітивних функцій.",
+    "Твоя мета — зацікавити читача, допомогти йому впізнати себе й захотіти читати далі.",
+    "Голос: кмітливий друг у кав'ярні, не підручник і не лектор. Пиши живою, чистою українською, звертайся на «ви», тепло й без канцеляриту та кальок.",
+    "Починай із чіпкого першого рядка: впізнавана сценка, несподіване питання або сміливе, але чесне твердження. Не починай із теми чи визначення.",
+    "Покажи 1–3 конкретні побутові приклади. Термінів мінімум; якщо вживаєш Ni, Fe чи інший термін, одразу поясни його просто.",
+    `Для цього допису використай формат: ${format}.`,
+    "Закінчи запитанням до читачів або маленьким прикладом, який можна спробувати сьогодні.",
+    invitedToTest
+      ? `Цього разу доречно ненав'язливо запросити пройти тест: ${env.SITE_URL || ""}`
+      : "Цього разу не запрошуй проходити тест.",
+    `Довжина: 450–800 символів разом із пробілами. Лише якщо міні-історії справді потрібен простір, цього разу можна до ${maxLength} символів. Зроби 2–4 короткі абзаци.`,
+    "Поверни простий текст без Markdown. Емодзі — 0–2, хештеги — не більше одного й лише за потреби.",
+    "Подавай MBTI як модель для саморефлексії, а не доведену істину. Не вигадуй досліджень, цитат, імен учених чи цифр. Не став діагнозів і не давай медичних чи психотерапевтичних порад.",
+    "Не висміюй людей і типи, не створюй стереотипів, не діли типи на кращі й гірші, не лякай і не маніпулюй. Не вдавай, що маєш особистий людський досвід.",
+    "Чергуй подачу. Не повторюй попередні гачки, сцени, приклади, висновки, формулювання чи структуру.",
   ].join(" ");
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent`,
-    {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent`;
+  let lastIssue = "unknown";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const retry = attempt
+      ? `Попередній варіант не підійшов: ${lastIssue}. Напиши інший допис, суворо дотримайся довжини 450–${maxLength} символів і не повторюй історію.`
+      : "";
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -130,30 +189,56 @@ async function generatePost(env) {
             role: "user",
             parts: [
               {
-                text: `Напиши готовий допис українською на тему: ${topic}. Зроби 3–5 змістовних абзаців, орієнтовно 500–1000 символів. Поверни лише сам допис.`,
+                text: [
+                  `Напиши готовий допис українською на тему: ${topic}.`,
+                  `Формат: ${format}.`,
+                  invitedToTest
+                    ? "Запрошення до тесту можна додати ненав'язливо."
+                    : "Не додавай запрошення до тесту.",
+                  `Не повторюй ці попередні згенеровані дописи:\n\n${priorPosts}`,
+                  retry,
+                  "Поверни лише текст допису.",
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
               },
             ],
           },
         ],
         generationConfig: {
           maxOutputTokens: 2048,
-          temperature: 0.8,
+          temperature: 0.9,
           thinkingConfig: { thinkingBudget: 256 },
         },
       }),
-    },
-  );
-  if (!response.ok) throw new Error(`Gemini returned HTTP ${response.status}`);
-  const data = await response.json();
-  const candidate = data.candidates?.[0];
-  if (!candidate) throw new Error(data.error?.message || "Gemini returned no generated text");
-  const text = (candidate.content?.parts || [])
-    .map((part) => part.text || "")
-    .join("")
-    .trim();
-  if (!text) throw new Error("Gemini returned an empty post");
-  if (text.length > 4096) throw new Error("Gemini's post is too long for Telegram");
-  return text;
+    });
+    if (!response.ok) throw new Error(`Gemini returned HTTP ${response.status}`);
+    const data = await response.json();
+    const candidate = data.candidates?.[0];
+    if (!candidate) throw new Error(data.error?.message || "Gemini returned no generated text");
+    const text = (candidate.content?.parts || [])
+      .map((part) => part.text || "")
+      .join("")
+      .trim();
+    if (!text) throw new Error("Gemini returned an empty post");
+    const length = Array.from(text).length;
+    const duplicate = history.some(
+      (post) => post.text.toLowerCase().replace(/\s+/g, " ").trim() ===
+        text.toLowerCase().replace(/\s+/g, " ").trim(),
+    );
+    if (length < 450 || length > maxLength) {
+      lastIssue = `згенеровано ${length} символів`;
+      continue;
+    }
+    if (duplicate) {
+      lastIssue = "текст повторює попередній допис";
+      continue;
+    }
+    history.push({ text, topic, format, invitedToTest });
+    await env.KV.put(POST_HISTORY_KEY, JSON.stringify(history.slice(-POST_HISTORY_LIMIT)));
+    return text;
+  }
+  throw new Error(`Gemini did not generate a unique 450–${maxLength}-character post: ${lastIssue}`);
 }
 
 async function createDraft(env) {
