@@ -212,7 +212,16 @@ async function generatePost(env) {
         },
       }),
     });
-    if (!response.ok) throw new Error(`Gemini returned HTTP ${response.status}`);
+    if (!response.ok) {
+      const body = await response.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).error?.message || body;
+      } catch {
+        // Keep the provider's plain-text response for diagnostics.
+      }
+      throw new Error(`Gemini API HTTP ${response.status}: ${detail.slice(0, 300)}`);
+    }
     const data = await response.json();
     const candidate = data.candidates?.[0];
     if (!candidate) throw new Error(data.error?.message || "Gemini returned no generated text");
@@ -258,12 +267,13 @@ async function createDraft(env) {
       reply_markup: draftKeyboard(id),
     });
   } catch (error) {
+    console.error("Post generation failed:", error);
+    const reason = error instanceof Error ? error.message : String(error);
     await telegram(env, "editMessageText", {
       chat_id: env.ADMIN_ID,
       message_id: placeholder.message_id,
-      text: "Не вдалося створити чернетку. Перевір Gemini API key та ліміти у журналі Worker.",
+      text: `Не вдалося створити чернетку.\nПричина: ${reason.slice(0, 300)}`,
     });
-    throw error;
   }
 }
 
@@ -416,7 +426,9 @@ async function handleCallback(query, env) {
       console.error("Post regeneration failed:", error);
       await telegram(env, "sendMessage", {
         chat_id: message.chat.id,
-        text: "Не вдалося переробити пост. Поточна чернетка залишилась без змін.",
+        text: `Не вдалося переробити пост. Поточна чернетка залишилась без змін.\nПричина: ${
+          error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300)
+        }`,
       });
     }
     return;
