@@ -197,6 +197,16 @@ async function sendReminder(env, localDate) {
   await env.KV.put(sentKey, "1", { expirationTtl: 172800 });
 }
 
+async function sendAdminMenu(env) {
+  await telegram(env, "sendMessage", {
+    chat_id: env.ADMIN_ID,
+    text: "Адмін-панель. Можна створити пост зараз — щоденне нагадування не зміниться.",
+    reply_markup: keyboard([
+      [{ text: "Створити пост зараз", callback_data: "create" }],
+    ]),
+  });
+}
+
 async function publishDraft(env, draft) {
   if (!draft.mediaId) {
     return telegram(env, "sendMessage", { chat_id: env.CHANNEL, text: draft.text });
@@ -221,10 +231,19 @@ async function handleMessage(update, env) {
   const text = message.text || "";
 
   if (text.startsWith("/start")) {
-    await checkSubscription(env, chatId, senderId, text.split(/\s+/, 2)[1] || "");
+    const token = text.split(/\s+/, 2)[1] || "";
+    if (isAdmin(env, senderId) && !token) {
+      await sendAdminMenu(env);
+      return;
+    }
+    await checkSubscription(env, chatId, senderId, token);
     return;
   }
   if (!isAdmin(env, senderId)) return;
+  if (text === "/admin") {
+    await sendAdminMenu(env);
+    return;
+  }
   if (text === "/post") {
     await createDraft(env);
     return;
@@ -232,7 +251,7 @@ async function handleMessage(update, env) {
   if (text === "/help") {
     await telegram(env, "sendMessage", {
       chat_id: chatId,
-      text: "/post — створити чернетку. До неї можна додати фото/відео, переробити або опублікувати кнопкою.",
+      text: "/admin — відкрити кнопку створення поста без зміни нагадування.\n/post — створити чернетку командою. До неї можна додати фото/відео, переробити або опублікувати кнопкою.",
     });
     return;
   }
