@@ -92,6 +92,19 @@ async function getPostHistory(env) {
   return history.slice(-POST_HISTORY_LIMIT);
 }
 
+function shortenPost(text, maxLength) {
+  const shortened = Array.from(text).slice(0, maxLength).join("");
+  const sentenceEnds = [...shortened.matchAll(/[.!?…](?=\s|$)/gu)];
+  const sentenceEnd = sentenceEnds.length
+    ? sentenceEnds[sentenceEnds.length - 1].index + 1
+    : 0;
+  if (sentenceEnd >= 450) return shortened.slice(0, sentenceEnd).trim();
+
+  const wordEnd = shortened.lastIndexOf(" ");
+  const result = (wordEnd >= 450 ? shortened.slice(0, wordEnd) : shortened).trim();
+  return `${result.replace(/[,:;—-]+$/u, "")}…`;
+}
+
 async function updateDraftMessage(env, id, draft) {
   await env.KV.put(`d:${id}`, JSON.stringify(draft), { expirationTtl: TTL });
   await telegram(env, "editMessageText", {
@@ -224,22 +237,31 @@ async function generatePost(env) {
     const data = await response.json();
     const candidate = data.candidates?.[0];
     if (!candidate) throw new Error(data.error?.message || "Gemini returned no generated text");
-    const text = (candidate.content?.parts || [])
+    let text = (candidate.content?.parts || [])
       .map((part) => part.text || "")
       .join("")
       .trim();
     if (!text) throw new Error("Gemini returned an empty post");
     const length = Array.from(text).length;
-    const duplicate = history.some(
-      (post) => post.text.toLowerCase().replace(/\s+/g, " ").trim() ===
-        text.toLowerCase().replace(/\s+/g, " ").trim(),
-    );
     if (length < 450 || length > maxLength) {
-      lastIssue = `згенеровано ${length} символів`;
-      continue;
+      if (length > maxLength) {
+        text = shortenPost(text, maxLength);
+      } else {
+        lastIssue = `згенеровано ${length} символів`;
+        continue;
+      }
     }
+    const normalizedText = text.toLowerCase().replace(/\s+/g, " ").trim();
+    const duplicate = history.some(
+      (post) =>
+        post.text.toLowerCase().replace(/\s+/g, " ").trim() === normalizedText,
+    );
     if (duplicate) {
       lastIssue = "текст повторює попередній допис";
+      continue;
+    }
+    if (Array.from(text).length < 450) {
+      lastIssue = `після скорочення залишилося ${Array.from(text).length} символів`;
       continue;
     }
     history.push({ text, topic, format, invitedToTest });
